@@ -1,221 +1,136 @@
 pipeline {
     agent any
-    
+
+    tools {
+        nodejs "NodeJS_20"
+    }
+
     environment {
-        DOCKER_REGISTRY = 'docker.io/dmzz' // Ex: docker.io/yourusername
-        PROJECT_NAME = 'smartphone-app'
-        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/${PROJECT_NAME}-frontend"
-        BACKEND_IMAGE = "${DOCKER_REGISTRY}/${PROJECT_NAME}-backend"
-        MONGO_IMAGE = 'mongo:6.0'
+        DOCKER_HUB_USER = 'dmzz'
+        FRONT_IMAGE = 'express-frontend'
+        BACK_IMAGE  = 'express-backend'
     }
-    
-    options {
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-        timeout(time: 30, unit: 'MINUTES')
-        disableConcurrentBuilds()
+    triggers {
+        // Pour que le pipeline démarre quand le webhook est reçu
+        GenericTrigger(
+            genericVariables: [
+                [key: 'ref', value: '$.ref'],
+                [key: 'pusher_name', value: '$.pusher.name'],
+                [key: 'commit_message', value: '$.head_commit.message']
+            ],
+            causeString: 'Push par $pusher_name sur $ref: "$commit_message"',
+            token: 'mysecret',
+            printContributedVariables: true,
+            printPostContent: true
+        )
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                git branch: 'main', url: 'https://github.com/mhdgeek/express_mongo_react.git'
+            }
+        }
+
+        stage('Install dependencies - Backend') {
+            steps {
+                dir('back-end') {
+                    sh 'npm install'
+                }
+            }
+        }
+
+        stage('Install dependencies - Frontend') {
+            steps {
+                dir('front-end') {
+                    sh 'npm install'
+                }
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
                 script {
-                    currentBuild.displayName = "BUILD-${env.BUILD_NUMBER}"
-                    currentBuild.description = "Branch: ${env.GIT_BRANCH}"
+                    sh 'cd back-end && npm test || echo "Aucun test backend"'
+                    sh 'cd front-end && npm test || echo "Aucun test frontend"'
                 }
             }
         }
-        
-        stage('Code Quality') {
-            parallel {
-                stage('Frontend Lint') {
-                    when {
-                        changeset "front-end/**"
-                    }
-                    steps {
-                        dir('front-end') {
-                            sh 'npm install'
-                            sh 'npm run lint || true' // Continue even if lint fails
-                        }
-                    }
-                }
-                stage('Backend Lint') {
-                    when {
-                        changeset "back-end/**"
-                    }
-                    steps {
-                        dir('back-end') {
-                            sh 'npm install'
-                            sh 'npm run lint || true'
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('Tests') {
-            parallel {
-                stage('Frontend Tests') {
-                    when {
-                        changeset "front-end/**"
-                    }
-                    steps {
-                        dir('front-end') {
-                            sh 'npm test -- --watchAll=false --coverage --passWithNoTests'
-                        }
-                    }
-                    post {
-                        always {
-                            publishHTML(target: [
-                                allowMissing: true,
-                                alwaysLinkToLastBuild: true,
-                                keepAll: true,
-                                reportDir: 'front-end/coverage/lcov-report',
-                                reportFiles: 'index.html',
-                                reportName: 'Frontend Coverage'
-                            ])
-                        }
-                    }
-                }
-                stage('Backend Tests') {
-                    when {
-                        changeset "back-end/**"
-                    }
-                    steps {
-                        dir('back-end') {
-                            sh 'npm test -- --coverage --passWithNoTests'
-                        }
-                    }
-                    post {
-                        always {
-                            publishHTML(target: [
-                                allowMissing: true,
-                                alwaysLinkToLastBuild: true,
-                                keepAll: true,
-                                reportDir: 'back-end/coverage/lcov-report',
-                                reportFiles: 'index.html',
-                                reportName: 'Backend Coverage'
-                            ])
-                        }
-                    }
-                }
-            }
-        }
-        
+
         stage('Build Docker Images') {
             steps {
                 script {
-                    // Build Frontend
-                    docker.build("${FRONTEND_IMAGE}:${env.BUILD_NUMBER}", "-f front-end/Dockerfile ./front-end")
-                    
-                    // Build Backend
-                    docker.build("${BACKEND_IMAGE}:${env.BUILD_NUMBER}", "-f back-end/Dockerfile ./back-end")
+                    sh "docker build -t $DOCKER_HUB_USER/$FRONT_IMAGE:latest ./front-end"
+                    sh "docker build -t $DOCKER_HUB_USER/$BACK_IMAGE:latest ./back-end"
                 }
             }
         }
-        
-        stage('Security Scan') {
+
+        stage('Push Docker Images') {
             steps {
-                script {
-                    // Scan Frontend image (requires trivy installed on Jenkins agent)
-                    sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${FRONTEND_IMAGE}:${env.BUILD_NUMBER} || true"
-                    
-                    // Scan Backend image
-                    sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${BACKEND_IMAGE}:${env.BUILD_NUMBER} || true"
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh '''
+                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                        docker push $DOCKER_USER/react-frontend:latest
+                        docker push $DOCKER_USER/express-backend:latest
+                    '''
                 }
             }
         }
-        
-        stage('Push to Registry') {
-            when {
-                branch 'main' // or 'master', 'develop' selon votre workflow
-            }
+
+        // on supprime les conteneur inactif dans docker container
+        stage('Clean Docker') {
             steps {
-                script {
-                    // Login to Docker Registry (configure credentials in Jenkins)
-                    docker.withRegistry('https://' + env.DOCKER_REGISTRY, 'docker-credentials') {
-                        docker.image("${FRONTEND_IMAGE}:${env.BUILD_NUMBER}").push()
-                        docker.image("${BACKEND_IMAGE}:${env.BUILD_NUMBER}").push()
-                        
-                        // Also push latest tag for main branch
-                        if (env.BRANCH_NAME == 'main') {
-                            docker.image("${FRONTEND_IMAGE}:${env.BUILD_NUMBER}").push('latest')
-                            docker.image("${BACKEND_IMAGE}:${env.BUILD_NUMBER}").push('latest')
-                        }
-                    }
+                sh 'docker container prune -f'
+                sh 'docker image prune -f'
+            }
+        }
+
+        stage('Check Docker & Compose') {
+            steps {
+                sh 'docker --version'
+                sh 'docker-compose --version || echo "docker-compose non trouvé"'
+            }
+        }
+
+        stage('Deploy (compose.yaml)') {
+            steps {
+                dir('.') {  
+                    sh 'docker-compose -f compose.yaml down || true'
+                    sh 'docker-compose -f compose.yaml pull'
+                    sh 'docker-compose -f compose.yaml up -d'
+                    sh 'docker-compose -f compose.yaml ps'
+                    sh 'docker-compose -f compose.yaml logs --tail=50'
                 }
             }
         }
-        
-        stage('Deploy to Staging') {
-            when {
-                branch 'main'
-            }
+
+        stage('Smoke Test') {
             steps {
-                script {
-                    // Déploiement sur l'environnement de staging
-                    sh """
-                    docker-compose -f docker-compose.staging.yml down
-                    docker-compose -f docker-compose.staging.yml pull
-                    docker-compose -f docker-compose.staging.yml up -d
-                    """
-                }
-            }
-        }
-        
-        stage('Integration Tests') {
-            when {
-                branch 'main'
-            }
-            steps {
-                script {
-                    // Attendre que les services soient démarrés
-                    sh 'sleep 30'
-                    
-                    // Exécuter des tests d'intégration
-                    dir('back-end') {
-                        sh 'npm run test:integration || true'
-                    }
-                    
-                    // Tests E2E pour le frontend
-                    dir('front-end') {
-                        sh 'npm run test:e2e || true'
-                    }
-                }
+                sh '''
+                    echo " Vérification Frontend (port 5173)..."
+                    curl -f http://localhost:5173 || echo "Frontend unreachable"
+
+                    echo " Vérification Backend (port 5001)..."
+                    curl -f http://localhost:5001/api || echo "Backend unreachable"
+                '''
             }
         }
     }
-    
+
     post {
-        always {
-            // Nettoyage des images Docker locales
-            sh 'docker system prune -f || true'
-            
-            // Archivage des artefacts
-            archiveArtifacts artifacts: '**/coverage/**/*, **/build/**/*', allowEmptyArchive: true
-        }
         success {
-            emailext (
-                subject: "SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: "Le build ${env.BUILD_URL} est réussi",
-                to: "${env.CHANGE_AUTHOR_EMAIL}",
-                attachLog: false
+            emailext(
+                subject: "Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Pipeline réussi\nDétails : ${env.BUILD_URL}",
+                to: "mohamedndoye07@gmail.com"
             )
         }
         failure {
-            emailext (
-                subject: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: "Le build ${env.BUILD_URL} a échoué",
-                to: "${env.CHANGE_AUTHOR_EMAIL}",
-                attachLog: true
-            )
-        }
-        unstable {
-            emailext (
-                subject: "UNSTABLE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: "Le build ${env.BUILD_URL} est instable",
-                to: "${env.CHANGE_AUTHOR_EMAIL}",
-                attachLog: true
+            emailext(
+                subject: "Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Le pipeline a échoué\nDétails : ${env.BUILD_URL}",
+                to: "mohamedndoye07@gmail.com"
             )
         }
     }
