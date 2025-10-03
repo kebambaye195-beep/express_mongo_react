@@ -6,7 +6,7 @@ pipeline {
     }
 
     environment {
-        DOCKER_HUB_USER = 'https://github.com/kebambaye195-beep/express_mongo_react.git'
+        DOCKER_HUB_USER = 'kebambaye195-beep'
         FRONT_IMAGE = 'express-frontend'
         BACK_IMAGE  = 'express-backend'
     }
