@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        nodejs "NodeJS_22"  // Changé pour correspondre à votre version Node.js
+        nodejs "NodeJS_16"  // Changé pour correspondre à votre version Node.js
     }
 
     environment {
