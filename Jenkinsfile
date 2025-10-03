@@ -2,28 +2,20 @@ pipeline {
     agent any
 
     tools {
-        nodejs "NodeJS_16"  // Changé pour correspondre à votre version Node.js
+        nodejs "NodeJS_16"
     }
 
     environment {
+        DOCKER_HOST = "unix:///var/run/docker.sock"
         DOCKER_HUB_USER = 'dmzz'
         FRONT_IMAGE = 'express-frontend'
         BACK_IMAGE  = 'express-backend'
     }
 
-    triggers {
-        pollSCM('H/5 * * * *')  // Déclenchement toutes les 5 minutes pour commencer
-        // GenericTrigger commenté pour l'instant - à activer après tests
-    }
-
     stages {
         stage('Checkout') {
             steps {
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: 'main']],
-                    userRemoteConfigs: [[url: 'https://github.com/Buhaha2525/express_mongo_react.git']]
-                ])
+                checkout scm
             }
         }
 
@@ -33,47 +25,34 @@ pipeline {
                     echo "=== Environment Information ==="
                     node -v
                     npm -v
-                    docker --version || echo "❌ Docker non installé"
-                    docker-compose --version || echo "❌ Docker-compose non installé"
-                    echo "=== Workspace Content ==="
-                    pwd
-                    ls -la
-                    echo "=== Backend Content ==="
-                    ls -la back-end/ || echo "❌ Dossier back-end non trouvé"
-                    echo "=== Frontend Content ==="
-                    ls -la front-end/ || echo "❌ Dossier front-end non trouvé"
+                    whoami
+                    echo "=== Docker Socket ==="
+                    ls -la /var/run/docker.sock || echo "Docker socket not found"
+                    echo "=== Trying Docker Commands ==="
+                    docker --version || echo "Docker not available in PATH"
+                    docker-compose --version || echo "Docker-compose not available"
                 '''
             }
         }
 
-        stage('Add Missing Test Scripts') {
+        stage('Install Docker in Container') {
             steps {
                 script {
-                    // Ajouter les scripts test manquants
+                    // Installer Docker dans le conteneur Jenkins si nécessaire
                     sh '''
-                        # Backend
-                        if [ -f "back-end/package.json" ]; then
-                            cd back-end
-                            if ! grep -q "\"test\"" package.json; then
-                                echo "🔧 Adding test script to backend..."
-                                npm pkg set scripts.test="echo 'No backend tests yet' && exit 0"
-                            fi
-                            cd ..
-                        else
-                            echo "❌ back-end/package.json not found"
+                        if ! command -v docker &> /dev/null; then
+                            echo "🔧 Installing Docker inside Jenkins container..."
+                            apt-get update
+                            apt-get install -y docker.io
                         fi
-
-                        # Frontend
-                        if [ -f "front-end/package.json" ]; then
-                            cd front-end
-                            if ! grep -q "\"test\"" package.json; then
-                                echo "🔧 Adding test script to frontend..."
-                                npm pkg set scripts.test="echo 'No frontend tests yet' && exit 0"
-                            fi
-                            cd ..
-                        else
-                            echo "❌ front-end/package.json not found"
+                        
+                        if ! command -v docker-compose &> /dev/null; then
+                            echo "🔧 Installing Docker Compose..."
+                            apt-get install -y docker-compose
                         fi
+                        
+                        docker --version
+                        docker-compose --version
                     '''
                 }
             }
@@ -101,7 +80,6 @@ pipeline {
         stage('Run Tests') {
             steps {
                 script {
-                    // Tests avec gestion d'erreur gracieuse
                     catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                         dir('back-end') {
                             sh 'npm test || echo "⚠️ Backend tests failed or missing"'
@@ -119,55 +97,16 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
-                    // Vérifier que Docker est disponible
                     sh '''
-                        if ! command -v docker &> /dev/null; then
-                            echo "❌ Docker n'est pas disponible sur cet agent"
-                            echo "💡 Configurez un agent avec Docker installé"
-                            exit 1
-                        fi
+                        echo "🔧 Testing Docker access..."
+                        docker ps || echo "Docker not accessible"
                     '''
                     
                     sh "docker build -t ${env.DOCKER_HUB_USER}/${env.FRONT_IMAGE}:latest ./front-end"
                     sh "docker build -t ${env.DOCKER_HUB_USER}/${env.BACK_IMAGE}:latest ./back-end"
                     
-                    // Lister les images construites
-                    sh 'docker images | grep ${DOCKER_HUB_USER}'
+                    sh 'docker images | grep ${DOCKER_HUB_USER} || echo "No images found"'
                 }
-            }
-        }
-
-        stage('Push Docker Images') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub-credentials', 
-                        usernameVariable: 'DOCKER_USER', 
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        sh '''
-                            echo "🔐 Login to Docker Hub..."
-                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                            
-                            echo "🚀 Pushing images..."
-                            docker push "$DOCKER_USER/${FRONT_IMAGE}:latest"
-                            docker push "$DOCKER_USER/${BACK_IMAGE}:latest"
-                            
-                            echo "✅ Images pushed successfully"
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('Cleanup') {
-            steps {
-                sh '''
-                    echo "🧹 Cleaning up Docker resources..."
-                    docker container prune -f || true
-                    docker image prune -f || true
-                    echo "✅ Cleanup completed"
-                '''
             }
         }
 
@@ -177,15 +116,14 @@ pipeline {
                     sh '''
                         echo "🚀 Starting deployment..."
                         
-                        # Vérifier si le fichier compose.yaml existe
+                        # Vérifier et créer compose.yaml si nécessaire
                         if [ ! -f "compose.yaml" ] && [ ! -f "docker-compose.yml" ]; then
-                            echo "❌ Aucun fichier docker-compose trouvé"
-                            echo "📁 Création d'un fichier compose.yaml basique..."
+                            echo "📁 Creating basic compose.yaml..."
                             cat > compose.yaml << 'EOF'
 version: "3.9"
 services:
   frontend:
-    image: ${DOCKER_HUB_USER}/${FRONT_IMAGE}:latest
+    image: ${DOCKER_HUB_USER}/express-frontend:latest
     container_name: react-frontend
     ports:
       - "5173:5173"
@@ -195,7 +133,7 @@ services:
       - backend
 
   backend:
-    image: ${DOCKER_HUB_USER}/${BACK_IMAGE}:latest
+    image: ${DOCKER_HUB_USER}/express-backend:latest
     container_name: express-backend
     ports:
       - "5001:5001"
@@ -218,7 +156,6 @@ volumes:
 EOF
                         fi
 
-                        # Utiliser docker-compose.yml si compose.yaml n'existe pas
                         COMPOSE_FILE="compose.yaml"
                         if [ ! -f "$COMPOSE_FILE" ] && [ -f "docker-compose.yml" ]; then
                             COMPOSE_FILE="docker-compose.yml"
@@ -249,29 +186,13 @@ EOF
                     sh '''
                         echo "🧪 Running smoke tests..."
                         
-                        # Test Backend avec timeout et retry
+                        # Test Backend
                         echo "Testing Backend (port 5001)..."
-                        for i in {1..5}; do
-                            if curl -f -s http://localhost:5001/api/smartphones > /dev/null 2>&1; then
-                                echo "✅ Backend is responding"
-                                break
-                            else
-                                echo "⏳ Backend not ready yet (attempt $i/5)"
-                                sleep 10
-                            fi
-                        done
-
+                        curl -f http://localhost:5001/api/smartphones || echo "Backend not ready yet"
+                        
                         # Test Frontend
                         echo "Testing Frontend (port 5173)..."
-                        for i in {1}{1..5}; do
-                            if curl -f -s http://localhost:5173 > /dev/null 2>&1; then
-                                echo "✅ Frontend is responding"
-                                break
-                            else
-                                echo "⏳ Frontend not ready yet (attempt $i/5)"
-                                sleep 10
-                            fi
-                        done
+                        curl -f http://localhost:5173 || echo "Frontend not ready yet"
 
                         echo "🎉 Smoke tests completed"
                     '''
@@ -284,8 +205,7 @@ EOF
         always {
             sh '''
                 echo "=== Final Status ==="
-                docker ps -a || true
-                docker images | grep ${DOCKER_HUB_USER} || true
+                docker ps -a || echo "Cannot check containers"
                 echo "=== Build Information ==="
                 echo "Job: ${JOB_NAME}"
                 echo "Build: ${BUILD_NUMBER}"
@@ -294,45 +214,9 @@ EOF
         }
         success {
             echo "🎉 Pipeline exécuté avec succès!"
-            emailext(
-                subject: "✅ SUCCÈS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                Le pipeline CI/CD s'est terminé avec succès!
-
-                Détails:
-                - Job: ${env.JOB_NAME}
-                - Build: ${env.BUILD_NUMBER}
-                - URL: ${env.BUILD_URL}
-                - Date: ${new Date().format('yyyy-MM-dd HH:mm:ss')}
-
-                Les services sont disponibles:
-                - Frontend: http://localhost:5173
-                - Backend: http://localhost:5001/api
-                - MongoDB: localhost:27017
-                """,
-                to: "sowgokuuza@gmail.com"
-            )
         }
         failure {
             echo "❌ Le pipeline a échoué!"
-            emailext(
-                subject: "❌ ÉCHEC: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                Le pipeline CI/CD a échoué!
-
-                Détails:
-                - Job: ${env.JOB_NAME}
-                - Build: ${env.BUILD_NUMBER}
-                - URL: ${env.BUILD_URL}
-                - Date: ${new Date().format('yyyy-MM-dd HH:mm:ss')}
-
-                Veuillez consulter les logs pour plus de détails.
-                """,
-                to: "sowgokuuza@gmail.com"
-            )
-        }
-        unstable {
-            echo "⚠️ Le pipeline est instable (tests manquants)"
         }
     }
 }
