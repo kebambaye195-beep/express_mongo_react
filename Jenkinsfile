@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_REGISTRY = 'your-docker-registry' // Ex: docker.io/yourusername
+        DOCKER_REGISTRY = 'docker.io/dmzz' // Ex: docker.io/yourusername
         PROJECT_NAME = 'smartphone-app'
         FRONTEND_IMAGE = "${DOCKER_REGISTRY}/${PROJECT_NAME}-frontend"
         BACKEND_IMAGE = "${DOCKER_REGISTRY}/${PROJECT_NAME}-backend"
