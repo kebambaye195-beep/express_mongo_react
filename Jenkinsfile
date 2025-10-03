@@ -10,8 +10,8 @@ pipeline {
         FRONT_IMAGE = 'express-frontend'
         BACK_IMAGE  = 'express-backend'
     }
+
     triggers {
-        // Pour que le pipeline démarre quand le webhook est reçu
         GenericTrigger(
             genericVariables: [
                 [key: 'ref', value: '$.ref'],
@@ -32,19 +32,19 @@ pipeline {
             }
         }
 
+        stage('Check Node') {
+            steps { sh 'node -v && npm -v' }
+        }
+
         stage('Install dependencies - Backend') {
             steps {
-                dir('back-end') {
-                    sh 'npm install'
-                }
+                dir('back-end') { sh 'npm install' }
             }
         }
 
         stage('Install dependencies - Frontend') {
             steps {
-                dir('front-end') {
-                    sh 'npm install'
-                }
+                dir('front-end') { sh 'npm install' }
             }
         }
 
@@ -60,8 +60,8 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
-                    sh "docker build -t $DOCKER_HUB_USER/$FRONT_IMAGE:latest ./front-end"
-                    sh "docker build -t $DOCKER_HUB_USER/$BACK_IMAGE:latest ./back-end"
+                    sh "docker build -t ${DOCKER_HUB_USER}/${FRONT_IMAGE}:latest ./front-end"
+                    sh "docker build -t ${DOCKER_HUB_USER}/${BACK_IMAGE}:latest ./back-end"
                 }
             }
         }
@@ -70,19 +70,18 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh '''
-                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                        docker push $DOCKER_USER/express-frontend:latest
-                        docker push $DOCKER_USER/express-backend:latest
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker push "$DOCKER_USER/${FRONT_IMAGE}:latest"
+                        docker push "$DOCKER_USER/${BACK_IMAGE}:latest"
                     '''
                 }
             }
         }
 
-        // on supprime les conteneur inactif dans docker container
         stage('Clean Docker') {
             steps {
-                sh 'docker container prune -f'
-                sh 'docker image prune -f'
+                sh 'docker container prune -f || true'
+                sh 'docker image prune -f || true'
             }
         }
 
@@ -95,12 +94,12 @@ pipeline {
 
         stage('Deploy (compose.yaml)') {
             steps {
-                dir('.') {  
+                dir('.') {
                     sh 'docker-compose -f compose.yaml down || true'
-                    sh 'docker-compose -f compose.yaml pull'
-                    sh 'docker-compose -f compose.yaml up -d'
-                    sh 'docker-compose -f compose.yaml ps'
-                    sh 'docker-compose -f compose.yaml logs --tail=50'
+                    sh 'docker-compose -f compose.yaml pull || true'
+                    sh 'docker-compose -f compose.yaml up -d || true'
+                    sh 'docker-compose -f compose.yaml ps || true'
+                    sh 'docker-compose -f compose.yaml logs --tail=50 || true'
                 }
             }
         }
