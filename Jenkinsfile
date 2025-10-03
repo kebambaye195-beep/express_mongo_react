@@ -71,7 +71,7 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh '''
                         echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                        docker push $DOCKER_USER/react-frontend:latest
+                        docker push $DOCKER_USER/express-frontend:latest
                         docker push $DOCKER_USER/express-backend:latest
                     '''
                 }
