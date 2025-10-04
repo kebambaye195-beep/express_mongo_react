@@ -48,14 +48,14 @@ pipeline {
             }
         }
 
-       stage('Run Tests') {
+       /*stage('Run Tests') {
             steps {
                 stage('Check Docker') {
   steps {
     sh 'docker --version'
   }
 }
-            }         }
+            }         }*/
                 script {
                     sh 'cd back-end && npm test || echo "Aucun test backend"'
                     sh 'cd front-end && npm test || echo "Aucun test frontend"'
