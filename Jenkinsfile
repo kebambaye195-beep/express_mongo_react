@@ -136,7 +136,7 @@ pipeline {
             emailext(
                 subject: "Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 body: "Le pipeline a échoué\nDétails : ${env.BUILD_URL}",
-                to: "sowgokuuza@gmail.com"
+                to: "kebambaye195@gmail.com"
             )
         }
     }
