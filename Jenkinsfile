@@ -122,7 +122,7 @@ pipeline {
                 '''
             }
         }
-
+    }
 
     post {
         success {
@@ -140,5 +140,4 @@ pipeline {
             )
         }
     }
-}
 }
