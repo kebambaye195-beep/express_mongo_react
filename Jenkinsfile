@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        nodejs "NodeJS_16"
+        nodejs "Node_JS16"
     }
 
     environment {
@@ -50,7 +50,7 @@ pipeline {
 
         stage('Run Tests') {
             steps {
-                stage('Check Docker') {
+                //stage('Check Docker') {
   steps {
     sh 'docker --version'
   }
