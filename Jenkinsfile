@@ -122,14 +122,14 @@ pipeline {
                 '''
             }
         }
-    }
+    
 
     post {
         success {
             emailext(
                 subject: "Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 body: "Pipeline réussi\nDétails : ${env.BUILD_URL}",
-                to: "sowgokuuza@gmail.com"
+                to: "kebambaye195@gmail.com"
             )
         }
         failure {
