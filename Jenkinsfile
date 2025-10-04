@@ -122,7 +122,7 @@ pipeline {
                 '''
             }
         }
-}
+
 
     post {
         success {
