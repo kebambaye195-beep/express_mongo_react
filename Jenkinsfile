@@ -72,7 +72,7 @@ pipeline {
             }
         }
 
-        stage('Push Docker Images') {
+        /*stage('Push Docker Images') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh '''
@@ -82,8 +82,18 @@ pipeline {
                     '''
                 }
             }
+        }*/
+        stage('Push Docker Images') {
+    steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+            sh '''
+                echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                docker push $DOCKER_USER/express-frontend:latest
+                docker push $DOCKER_USER/express-backend:latest
+            '''
         }
-
+    }
+}
         // on supprime les conteneur inactif dans docker container
         stage('Clean Docker') {
             steps {
