@@ -6,7 +6,7 @@ pipeline {
     }
 
     environment {
-        DOCKER_HUB_USER = 'juge2000'
+        DOCKER_USER = 'juge2000'
         FRONT_IMAGE = 'express-frontend'
         BACK_IMAGE  = 'express-backend'
     }
@@ -66,8 +66,8 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
-                    sh "docker build -t $DOCKER_HUB_USER/$FRONT_IMAGE:latest ./front-end"
-                    sh "docker build -t $DOCKER_HUB_USER/$BACK_IMAGE:latest ./back-end"
+                    sh "docker build -t $DOCKER_USER/$FRONT_IMAGE:latest ./front-end"
+                    sh "docker build -t $DOCKER_USER/$BACK_IMAGE:latest ./back-end"
                 }
             }
         }
