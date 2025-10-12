@@ -161,7 +161,7 @@ stage('Push Docker Images') {
                 '''
             }
         }
-    }
+    
 
   post {
         success {
