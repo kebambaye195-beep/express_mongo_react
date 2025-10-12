@@ -68,7 +68,7 @@ pipeline {
       steps {
         echo " Analyse du code avec SonarQube..."
         withSonarQubeEnv('sonarQube_Local') {
-          withCredentials([string(credentialsId: 'sqp_d962088674f4d0942a1c14486134096cb4082e62', variable: 'SONAR_TOKEN')]) {
+          withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
             sh """
               /opt/sonar-scanner/bin/sonar-scanner \\
               -Dsonar.projectKey=fullstack-app \\
