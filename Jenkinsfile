@@ -3,6 +3,7 @@ pipeline {
 
     tools {
         nodejs "Node_JS16"
+        sonarQubeScanner 'SonarScanner'
     }
 
     environment {
@@ -62,6 +63,34 @@ pipeline {
                 }
             }
         }
+
+    stage(' SonarQube Analysis') {
+      steps {
+        echo " Analyse du code avec SonarQube..."
+        withSonarQubeEnv('sonarQube_Local') {
+          withCredentials([string(credentialsId: 'sqp_d962088674f4d0942a1c14486134096cb4082e62', variable: 'SONAR_TOKEN')]) {
+            sh """
+              /opt/sonar-scanner/bin/sonar-scanner \\
+              -Dsonar.projectKey=fullstack-app \\
+              -Dsonar.sources=. \\
+              -Dsonar.host.url=http://172.17.0.3:9000 \\
+              -Dsonar.login=$SONAR_TOKEN
+            """
+          }
+        }
+      }
+    }
+
+    stage(' Quality Gate') {
+      steps {
+        echo "Vérification du Quality Gate..."
+        timeout(time: 2, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
+      }
+    }
+  }
+}
 
         stage('Build Docker Images') {
             steps {
