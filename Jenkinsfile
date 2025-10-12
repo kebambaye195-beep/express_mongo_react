@@ -64,22 +64,22 @@ pipeline {
             }
         }
 
-    stage(' SonarQube Analysis') {
-      steps {
-        echo " Analyse du code avec SonarQube..."
-        withSonarQubeEnv('sonarqube') {
-          withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
-            sh """
-              /opt/sonar-scanner/bin/sonar-scanner \\
-              -Dsonar.projectKey=fullstack-app \\
-              -Dsonar.sources=. \\
-              -Dsonar.host.url=http://172.17.0.3:9000 \\
-              -Dsonar.login=$SONAR_TOKEN
-            """
-          }
-        }
+stage('SonarQube Analysis') {
+  steps {
+    echo "🔍 Analyse du code avec SonarQube..."
+    withSonarQubeEnv('SonarQube_Local') {
+      withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
+        sh '''
+          sonar-scanner \
+          -Dsonar.projectKey=fullstack-app \
+          -Dsonar.sources=. \
+          -Dsonar.host.url=http://localhost:9000 \
+          -Dsonar.login=$SONAR_TOKEN
+        '''
       }
     }
+  }
+}
 
     stage(' Quality Gate') {
       steps {
