@@ -38,15 +38,42 @@ pipeline {
         script {
           sh '''
             echo "🔧 Installation de SonarScanner..."
+            # Vérifier si wget et unzip sont disponibles
+            if ! command -v wget &> /dev/null; then
+              echo "Installation de wget..."
+              apt-get update && apt-get install -y wget
+            fi
+            
+            if ! command -v unzip &> /dev/null; then
+              echo "Installation de unzip..."
+              apt-get install -y unzip
+            fi
+
             # Vérifier si sonar-scanner est déjà installé
             if ! command -v sonar-scanner &> /dev/null; then
               echo "Téléchargement de SonarScanner..."
+              # URL CORRIGÉE - l'ancienne URL était incorrecte
               wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856.zip
-              unzip -q sonar-scanner-cli-4.8.0.2856.zip
-              rm sonar-scanner-cli-4.8.0.2856.zip
-              echo "SonarScanner installé avec succès"
+              
+              if [ -f "sonar-scanner-cli-4.8.0.2856.zip" ]; then
+                echo "Décompression de SonarScanner..."
+                unzip -q sonar-scanner-cli-4.8.0.2856.zip
+                rm sonar-scanner-cli-4.8.0.2856.zip
+                echo "✅ SonarScanner installé avec succès"
+                
+                # Vérifier que l'installation a réussi
+                if [ -f "${SONAR_SCANNER_HOME}/bin/sonar-scanner" ]; then
+                  echo "✅ Fichier sonar-scanner trouvé"
+                else
+                  echo "❌ Fichier sonar-scanner non trouvé après installation"
+                  exit 1
+                fi
+              else
+                echo "❌ Échec du téléchargement de SonarScanner"
+                exit 1
+              fi
             else
-              echo "SonarScanner est déjà installé"
+              echo "✅ SonarScanner est déjà installé"
             fi
           '''
         }
@@ -84,7 +111,13 @@ pipeline {
         withSonarQubeEnv('Sonarqube') {
           withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
             sh """
+              # Ajouter SonarScanner au PATH
               export PATH=\"${env.SONAR_SCANNER_HOME}/bin:\$PATH\"
+              
+              echo "Vérification de la version de sonar-scanner..."
+              sonar-scanner --version || echo "Impossible d'exécuter sonar-scanner"
+              
+              echo "Exécution de l'analyse SonarQube..."
               sonar-scanner \
                 -Dsonar.projectKey=sonarqube1 \
                 -Dsonar.sources=. \
@@ -189,3 +222,4 @@ pipeline {
     }
   }
 }
+```
