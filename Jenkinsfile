@@ -75,7 +75,7 @@ stage('SonarQube Analysis') {
     sh '''
       sonar-scanner \
       -Dsonar.projectKey=fullstack-app \
-      -Dsonar.sources=. \
+      -Dsonar.sources=source \
       -Dsonar.host.url=http://localhost:9000 \
       -Dsonar.login=$SONAR_TOKEN
     '''
