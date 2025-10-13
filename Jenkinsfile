@@ -61,7 +61,7 @@ pipeline {
     stage('SonarQube Analysis') {
       steps {
         echo "🔍 Analyse du code avec SonarQube..."
-        withSonarQubeEnv('SonarQube_Local') {
+        withSonarQubeEnv('Sonarqube') {
           withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
             sh '''
               sonar-scanner \
