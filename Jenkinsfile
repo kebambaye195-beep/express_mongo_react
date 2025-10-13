@@ -74,18 +74,18 @@ stage('SonarQube Analysis') {
   withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
     sh '''
       sonar-scanner \
-      -Dsonar.projectKey=fullstack-app \
+      -Dsonar.projectKey=sonarqube1 \
       -Dsonar.sources=source \
       -Dsonar.host.url=http://localhost:9000 \
       -Dsonar.login=$SONAR_TOKEN
-    '''
+ //   '''
   }
 }
  
-          -Dsonar.projectKey=sonarqube1 \
+          /*-Dsonar.projectKey=sonarqube1 \
           -Dsonar.sources=source \
           -Dsonar.host.url=http://localhost:9000 \
-          -Dsonar.login=$SONAR_TOKEN
+          -Dsonar.login=$SONAR_TOKEN*/
         '''
       }
     }
