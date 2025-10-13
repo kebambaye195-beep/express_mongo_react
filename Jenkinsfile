@@ -1,16 +1,15 @@
 pipeline {
   agent any
 
-  // CORRECTION : S'assurer que le SonarScanner est déclaré ici
   tools {
-    nodejs 'Node_JS16'         // Nom de l'installation Node.js dans Global Tool Config
-    //sonarQubeScanner 'SonarScanner'  // Nom de l'installation SonarScanner dans Global Tool Config
+    nodejs "Node_JS16"
   }
 
   environment {
     DOCKER_USER = 'kebambaye195-beep'
     FRONT_IMAGE = 'express-frontend'
     BACK_IMAGE  = 'express-backend'
+    SONAR_SCANNER_HOME = "${env.WORKSPACE}/sonar-scanner-4.8.0.2856"
   }
 
   triggers {
@@ -31,6 +30,26 @@ pipeline {
     stage('Checkout') {
       steps {
         git branch: 'main', url: 'https://github.com/kebambaye195-beep/express_mongo_react.git'
+      }
+    }
+
+    stage('Install SonarScanner') {
+      steps {
+        script {
+          sh '''
+            echo "🔧 Installation de SonarScanner..."
+            # Vérifier si sonar-scanner est déjà installé
+            if ! command -v sonar-scanner &> /dev/null; then
+              echo "Téléchargement de SonarScanner..."
+              wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856.zip
+              unzip -q sonar-scanner-cli-4.8.0.2856.zip
+              rm sonar-scanner-cli-4.8.0.2856.zip
+              echo "SonarScanner installé avec succès"
+            else
+              echo "SonarScanner est déjà installé"
+            fi
+          '''
+        }
       }
     }
 
@@ -62,16 +81,16 @@ pipeline {
     stage('SonarQube Analysis') {
       steps {
         echo "🔍 Analyse du code avec SonarQube..."
-        // 'Sonarqube' doit être le nom du serveur configuré dans Jenkins > Configurer le système
         withSonarQubeEnv('Sonarqube') {
           withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
-            sh '''
-              sonar-scanner \\
-              -Dsonar.projectKey=sonarqube1 \\
-              -Dsonar.sources=. \\
-              -Dsonar.host.url=http://localhost:9000 \\
-              -Dsonar.login=$SONAR_TOKEN
-            '''
+            sh """
+              export PATH=\"${env.SONAR_SCANNER_HOME}/bin:\$PATH\"
+              sonar-scanner \
+                -Dsonar.projectKey=sonarqube1 \
+                -Dsonar.sources=. \
+                -Dsonar.host.url=http://localhost:9000 \
+                -Dsonar.login=$SONAR_TOKEN
+            """
           }
         }
       }
@@ -80,7 +99,6 @@ pipeline {
     stage('Quality Gate') {
       steps {
         echo "🛡 Vérification du Quality Gate..."
-        // 'Sonarqube' doit être le nom du serveur configuré.
         timeout(time: 2, unit: 'MINUTES') {
           waitForQualityGate abortPipeline: true
         }
@@ -98,9 +116,9 @@ pipeline {
 
     stage('Push Docker Images') {
       steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER_CRED', passwordVariable: 'DOCKER_PASS')]) {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
           sh '''
-            echo $DOCKER_PASS | docker login -u $DOCKER_USER_CRED --password-stdin
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
             docker push $DOCKER_USER/$FRONT_IMAGE:latest
             docker push $DOCKER_USER/$BACK_IMAGE:latest
           '''
@@ -161,6 +179,13 @@ pipeline {
         body: "Le pipeline a échoué\nDétails : ${env.BUILD_URL}",
         to: "kebambaye195@gmail.com"
       )
+    }
+    
+    always {
+      sh '''
+        echo "🧹 Nettoyage des fichiers d'installation..."
+        rm -rf sonar-scanner-4.8.0.2856 || true
+      '''
     }
   }
 }
