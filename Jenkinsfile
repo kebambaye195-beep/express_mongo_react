@@ -4,7 +4,7 @@ pipeline {
   // CORRECTION : S'assurer que le SonarScanner est déclaré ici
   tools {
     nodejs 'Node_JS16'         // Nom de l'installation Node.js dans Global Tool Config
-    sonarQubeScanner 'SonarScanner'  // Nom de l'installation SonarScanner dans Global Tool Config
+    //sonarQubeScanner 'SonarScanner'  // Nom de l'installation SonarScanner dans Global Tool Config
   }
 
   environment {
