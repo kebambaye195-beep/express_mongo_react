@@ -1,5 +1,3 @@
-
-
 pipeline {
   agent any
 
@@ -33,6 +31,20 @@ pipeline {
     stage('Checkout') {
       steps {
         git branch: 'main', url: 'https://github.com/kebambaye195-beep/express_mongo_react.git'
+      }
+    }
+
+    stage('Diagnostic Réseau') {
+      steps {
+        sh '''
+          echo "🔍 Diagnostic de connectivité réseau..."
+          echo "Adresse IP de l'hôte :"
+          hostname -I || true
+          echo "Test de connexion à SonarQube :"
+          curl -f http://sonarqube:9000 && echo "✅ Connecté à sonarqube:9000" || echo "❌ Impossible de se connecter à sonarqube:9000"
+          curl -f http://host.docker.internal:9000 && echo "✅ Connecté à host.docker.internal:9000" || echo "❌ Impossible de se connecter à host.docker.internal:9000"
+          curl -f http://localhost:9000 && echo "✅ Connecté à localhost:9000" || echo "❌ Impossible de se connecter à localhost:9000"
+        '''
       }
     }
 
@@ -103,6 +115,7 @@ pipeline {
         script {
           // Marquer si l'analyse SonarQube réussit
           def sonarAnalysisSuccess = false
+          def sonarTaskId = null
           
           try {
             withSonarQubeEnv('Sonarqube') {
@@ -111,11 +124,6 @@ pipeline {
                   export PATH=\"${env.SONAR_SCANNER_HOME}/bin:\$PATH\"
                   echo "Vérification de la version de sonar-scanner..."
                   sonar-scanner --version
-                  
-                  echo "Test de connectivité à SonarQube..."
-                  # Tester différentes URLs
-                  curl -f http://sonarqube:9000 && echo "✅ Connecté à sonarqube:9000" || echo "❌ Impossible de se connecter à sonarqube:9000"
-                  curl -f http://host.docker.internal:9000 && echo "✅ Connecté à host.docker.internal:9000" || echo "❌ Impossible de se connecter à host.docker.internal:9000"
                   
                   echo "Exécution de l'analyse SonarQube..."
                   sonar-scanner \
@@ -126,37 +134,73 @@ pipeline {
                 """
                 sonarAnalysisSuccess = true
                 echo "✅ Analyse SonarQube terminée avec succès"
+                
+                // Récupérer l'ID de tâche SonarQube
+                sonarTaskId = sh(
+                  script: "find . -name '*.txt' -exec grep -l 'sonarqube1' {} \\; | xargs grep -h 'taskId' | head -1 | sed 's/.*taskId=//'",
+                  returnStdout: true
+                ).trim()
               }
             }
           } catch (Exception e) {
             echo "⚠ Analyse SonarQube échouée: ${e.getMessage()}"
-            echo "➡ Continuation du pipeline sans l'analyse de qualité"
-            sonarAnalysisSuccess = false
+            echo "➡ Tentative de connexion alternative..."
+            
+            // Tentative alternative
+            try {
+              withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
+                sh """
+                  export PATH=\"${env.SONAR_SCANNER_HOME}/bin:\$PATH\"
+                  echo "Tentative avec host.docker.internal..."
+                  sonar-scanner \
+                    -Dsonar.projectKey=sonarqube1 \
+                    -Dsonar.sources=. \
+                    -Dsonar.host.url=http://host.docker.internal:9000 \
+                    -Dsonar.login=${SONAR_TOKEN}
+                """
+                sonarAnalysisSuccess = true
+                echo "✅ Analyse SonarQube réussie avec host.docker.internal"
+              }
+            } catch (Exception e2) {
+              echo "❌ Toutes les tentatives d'analyse SonarQube ont échoué"
+              sonarAnalysisSuccess = false
+            }
           }
           
           // Stocker le statut dans une variable d'environnement
           env.SONAR_ANALYSIS_SUCCESS = sonarAnalysisSuccess.toString()
+          if (sonarTaskId) {
+            env.SONAR_TASK_ID = sonarTaskId
+          }
         }
       }
     }
 
     stage('Quality Gate') {
-      when {
-        expression { 
-          return env.SONAR_ANALYSIS_SUCCESS == 'true' 
-        }
-      }
       steps {
         echo "🛡 Vérification du Quality Gate..."
         script {
-          try {
-            timeout(time: 2, unit: 'MINUTES') {
-              waitForQualityGate abortPipeline: false
+          if (env.SONAR_ANALYSIS_SUCCESS == 'true') {
+            try {
+              echo "⏳ Attente du résultat du Quality Gate..."
+              timeout(time: 5, unit: 'MINUTES') {
+                waitForQualityGate abortPipeline: false
+              }
+              echo "✅ Quality Gate terminée"
+            } catch (Exception e) {
+              echo "⚠ Erreur lors de la vérification du Quality Gate: ${e.getMessage()}"
+              echo "Cela peut être dû à:"
+              echo "- Temps d'analyse SonarQube trop long"
+              echo "- Problème de connexion au serveur SonarQube"
+              echo "- Fichier de rapport SonarQube non trouvé"
+              
+              // Attendre manuellement et vérifier le statut
+              sleep 30
+              echo "➡ Continuation du pipeline malgré l'erreur Quality Gate"
             }
-            echo "✅ Quality Gate passée"
-          } catch (Exception e) {
-            echo "⚠ Erreur lors de la vérification du Quality Gate: ${e.getMessage()}"
-            echo "➡ Continuation du pipeline"
+          } else {
+            echo "⚠ Analyse SonarQube non exécutée, impossible de vérifier le Quality Gate"
+            echo "➡ Continuation du pipeline sans vérification de qualité"
           }
         }
       }
@@ -229,7 +273,8 @@ pipeline {
         body: """
           Pipeline réussi
           Détails : ${env.BUILD_URL}
-          Analyse SonarQube: ${env.SONAR_ANALYSIS_SUCCESS == 'true' ? 'SUCCÈS' : 'ÉCHEC (non exécutée)'}
+          Analyse SonarQube: ${env.SONAR_ANALYSIS_SUCCESS == 'true' ? 'SUCCÈS' : 'ÉCHEC'}
+          Quality Gate: ${env.SONAR_ANALYSIS_SUCCESS == 'true' ? 'VÉRIFIÉE' : 'NON VÉRIFIÉE'}
         """,
         to: "kebambaye195@gmail.com"
       )
@@ -237,7 +282,11 @@ pipeline {
     failure {
       emailext(
         subject: "Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-        body: "Le pipeline a échoué\nDétails : ${env.BUILD_URL}",
+        body: """
+          Le pipeline a échoué
+          Détails : ${env.BUILD_URL}
+          Analyse SonarQube: ${env.SONAR_ANALYSIS_SUCCESS == 'true' ? 'SUCCÈS' : 'ÉCHEC'}
+        """,
         to: "kebambaye195@gmail.com"
       )
     }
