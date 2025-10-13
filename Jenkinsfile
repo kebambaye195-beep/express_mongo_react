@@ -81,7 +81,7 @@ stage('SonarQube Analysis') {
     '''
   }
 }
- \
+ 
           -Dsonar.projectKey=fullstack-app \
           -Dsonar.sources=. \
           -Dsonar.host.url=http://localhost:9000 \
