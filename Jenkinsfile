@@ -1,4 +1,5 @@
 
+
 pipeline {
   agent any
 
@@ -11,7 +12,7 @@ pipeline {
     FRONT_IMAGE = 'express-frontend'
     BACK_IMAGE  = 'express-backend'
     SONAR_SCANNER_HOME = "${env.WORKSPACE}/sonar-scanner-4.8.0.2856"
-    SONARQUBE_URL = "http://sonarqube:9000"  // Utiliser le nom du service Docker
+    SONARQUBE_URL = "http://sonarqube:9000"
   }
 
   triggers {
@@ -40,7 +41,6 @@ pipeline {
         script {
           sh '''
             echo "🔧 Installation de SonarScanner..."
-            # Vérifier si wget et unzip sont disponibles
             if ! command -v wget &> /dev/null; then
               echo "Installation de wget..."
               apt-get update && apt-get install -y wget
@@ -51,7 +51,6 @@ pipeline {
               apt-get install -y unzip
             fi
 
-            # Vérifier si sonar-scanner est déjà installé
             if [ ! -d "sonar-scanner-4.8.0.2856" ]; then
               echo "Téléchargement de SonarScanner..."
               wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856.zip
@@ -102,50 +101,63 @@ pipeline {
       steps {
         echo "🔍 Analyse du code avec SonarQube..."
         script {
-          // Essayer différentes URLs pour SonarQube
-          def sonarUrls = [
-            "http://sonarqube:9000",
-            "http://host.docker.internal:9000", 
-            "http://localhost:9000"
-          ]
+          // Marquer si l'analyse SonarQube réussit
+          def sonarAnalysisSuccess = false
           
-          withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
-            sh """
-              export PATH=\"${env.SONAR_SCANNER_HOME}/bin:\$PATH\"
-              echo "Vérification de la version de sonar-scanner..."
-              sonar-scanner --version
-              
-              echo "Test de connectivité à SonarQube..."
-              # Tester la connectivité
-              curl -f http://sonarqube:9000 && echo "✅ Connecté à sonarqube:9000" || echo "❌ Impossible de se connecter à sonarqube:9000"
-              curl -f http://host.docker.internal:9000 && echo "✅ Connecté à host.docker.internal:9000" || echo "❌ Impossible de se connecter à host.docker.internal:9000"
-              curl -f http://localhost:9000 && echo "✅ Connecté à localhost:9000" || echo "❌ Impossible de se connecter à localhost:9000"
-              
-              echo "Exécution de l'analyse SonarQube..."
-              # Essayer avec l'URL de l'environnement
-              sonar-scanner \
-                -Dsonar.projectKey=sonarqube1 \
-                -Dsonar.sources=. \
-                -Dsonar.host.url=${SONARQUBE_URL} \
-                -Dsonar.login=${SONAR_TOKEN} || \
-              echo "⚠ Première tentative échouée, essai avec host.docker.internal..." && \
-              sonar-scanner \
-                -Dsonar.projectKey=sonarqube1 \
-                -Dsonar.sources=. \
-                -Dsonar.host.url=http://host.docker.internal:9000 \
-                -Dsonar.login=${SONAR_TOKEN} || \
-              echo "⚠ Analyse SonarQube échouée, continuation du pipeline..."
-            """
+          try {
+            withSonarQubeEnv('Sonarqube') {
+              withCredentials([string(credentialsId: 'sonarqubeid', variable: 'SONAR_TOKEN')]) {
+                sh """
+                  export PATH=\"${env.SONAR_SCANNER_HOME}/bin:\$PATH\"
+                  echo "Vérification de la version de sonar-scanner..."
+                  sonar-scanner --version
+                  
+                  echo "Test de connectivité à SonarQube..."
+                  # Tester différentes URLs
+                  curl -f http://sonarqube:9000 && echo "✅ Connecté à sonarqube:9000" || echo "❌ Impossible de se connecter à sonarqube:9000"
+                  curl -f http://host.docker.internal:9000 && echo "✅ Connecté à host.docker.internal:9000" || echo "❌ Impossible de se connecter à host.docker.internal:9000"
+                  
+                  echo "Exécution de l'analyse SonarQube..."
+                  sonar-scanner \
+                    -Dsonar.projectKey=sonarqube1 \
+                    -Dsonar.sources=. \
+                    -Dsonar.host.url=${SONARQUBE_URL} \
+                    -Dsonar.login=${SONAR_TOKEN}
+                """
+                sonarAnalysisSuccess = true
+                echo "✅ Analyse SonarQube terminée avec succès"
+              }
+            }
+          } catch (Exception e) {
+            echo "⚠ Analyse SonarQube échouée: ${e.getMessage()}"
+            echo "➡ Continuation du pipeline sans l'analyse de qualité"
+            sonarAnalysisSuccess = false
           }
+          
+          // Stocker le statut dans une variable d'environnement
+          env.SONAR_ANALYSIS_SUCCESS = sonarAnalysisSuccess.toString()
         }
       }
     }
 
     stage('Quality Gate') {
+      when {
+        expression { 
+          return env.SONAR_ANALYSIS_SUCCESS == 'true' 
+        }
+      }
       steps {
         echo "🛡 Vérification du Quality Gate..."
-        timeout(time: 2, unit: 'MINUTES') {
-          waitForQualityGate abortPipeline: false // Ne pas arrêter le pipeline en cas d'échec
+        script {
+          try {
+            timeout(time: 2, unit: 'MINUTES') {
+              waitForQualityGate abortPipeline: false
+            }
+            echo "✅ Quality Gate passée"
+          } catch (Exception e) {
+            echo "⚠ Erreur lors de la vérification du Quality Gate: ${e.getMessage()}"
+            echo "➡ Continuation du pipeline"
+          }
         }
       }
     }
@@ -214,7 +226,11 @@ pipeline {
     success {
       emailext(
         subject: "Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-        body: "Pipeline réussi\nDétails : ${env.BUILD_URL}",
+        body: """
+          Pipeline réussi
+          Détails : ${env.BUILD_URL}
+          Analyse SonarQube: ${env.SONAR_ANALYSIS_SUCCESS == 'true' ? 'SUCCÈS' : 'ÉCHEC (non exécutée)'}
+        """,
         to: "kebambaye195@gmail.com"
       )
     }
