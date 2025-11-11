@@ -8,6 +8,8 @@ COPY vite.config.js ./
 
 # Installer toutes les dépendances (dont devDependencies)
 RUN npm install
+#  Mise à jour de esbuild
+RUN npm install esbuild@latest
 
 # Copier le code source
 COPY . .
