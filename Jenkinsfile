@@ -66,41 +66,39 @@ pipeline {
       }
     }
 
-    /* === 🔍 Étape Trivy corrigée === */
-stage('Trivy Scan') {
-  steps {
-    script {
-      sh '''
-        echo "🔍 Installation de Trivy si nécessaire..."
-        if ! command -v trivy &> /dev/null; then
-          echo "📦 Installation de Trivy..."
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-        fi
+    stage('Trivy Scan') {
+      steps {
+        script {
+          sh '''
+            echo "🔍 Installation de Trivy si nécessaire..."
+            if ! command -v trivy &> /dev/null; then
+              echo "📦 Installation de Trivy..."
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+            fi
 
-        mkdir -p trivy-reports
+            mkdir -p trivy-reports
 
-        echo "🧪 Scan des images Docker avec Trivy..."
-        trivy image --no-progress --severity HIGH,CRITICAL \
-          --exit-code 0 \
-          -f table -o trivy-reports/frontend-scan.txt \
-          $DOCKER_USER/$FRONT_IMAGE:latest || true
+            echo "🧪 Scan des images Docker avec Trivy..."
+            trivy image --no-progress --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              -f table -o trivy-reports/frontend-scan.txt \
+              $DOCKER_USER/$FRONT_IMAGE:latest || true
 
-        trivy image --no-progress --severity HIGH,CRITICAL \
-          --exit-code 0 \
-          -f table -o trivy-reports/backend-scan.txt \
-          $DOCKER_USER/$BACK_IMAGE:latest || true
+            trivy image --no-progress --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              -f table -o trivy-reports/backend-scan.txt \
+              $DOCKER_USER/$BACK_IMAGE:latest || true
 
-        echo "✅ Scan Trivy terminé avec succès."
-      '''
+            echo "✅ Scan Trivy terminé avec succès."
+          '''
+        }
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true
+        }
+      }
     }
-  }
-
-  post {
-    always {
-      archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true
-    }
-  }
-}
 
     stage('Push Docker Images') {
       steps {
@@ -143,10 +141,10 @@ stage('Trivy Scan') {
     stage('Smoke Test') {
       steps {
         sh '''
-          echo " Vérification Frontend (port 5173)..."
+          echo "✅ Vérification Frontend (port 5173)..."
           curl -f http://localhost:5173 || echo "Frontend unreachable"
 
-          echo " Vérification Backend (port 5001)..."
+          echo "✅ Vérification Backend (port 5001)..."
           curl -f http://localhost:5001/api || echo "Backend unreachable"
         '''
       }
