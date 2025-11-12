@@ -79,14 +79,16 @@ pipeline {
             mkdir -p trivy-reports
 
             echo "🧪 Scan des images Docker avec Trivy..."
-            trivy image --no-progress --severity HIGH,CRITICAL \
+            trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
               --exit-code 0 \
               -f table -o trivy-reports/frontend-scan.txt \
+              -f json -o trivy-reports/frontend-scan.json \
               $DOCKER_USER/$FRONT_IMAGE:latest || true
 
-            trivy image --no-progress --severity HIGH,CRITICAL \
+            trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
               --exit-code 0 \
               -f table -o trivy-reports/backend-scan.txt \
+              -f json -o trivy-reports/backend-scan.json \
               $DOCKER_USER/$BACK_IMAGE:latest || true
 
             echo "✅ Scan Trivy terminé avec succès."
@@ -95,7 +97,7 @@ pipeline {
       }
       post {
         always {
-          archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true
+          archiveArtifacts artifacts: 'trivy-reports/*.*', fingerprint: true
         }
       }
     }
