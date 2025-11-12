@@ -65,53 +65,6 @@
         }
       }
     }
-/*
-    stage('Trivy Scan') {
-      steps {
-        script {
-          sh '''
-            echo "🔍 Installation et exécution de Trivy..."
-
-            if ! command -v trivy &> /dev/null; then
-              echo "📦 Installation de Trivy..."
-              apt-get update && apt-get install -y wget gnupg lsb-release
-              mkdir -p /etc/apt/keyrings
-              wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /etc/apt/keyrings/trivy.gpg
-              echo "deb [signed-by=/etc/apt/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
-                | tee /etc/apt/sources.list.d/trivy.list
-              apt-get update && apt-get install -y trivy
-            fi
-
-            echo "🧾 Vérification du fichier .trivyignore..."
-            if [ -f ".trivyignore" ]; then
-              echo "✅ Fichier .trivyignore trouvé :"
-              cat .trivyignore
-            else
-              echo "⚠️ Aucun fichier .trivyignore trouvé, création d’un temporaire..."
-              echo "# Ignorer les CVE connus mais non exploitables" > .trivyignore
-            fi
-
-            echo "🧪 Scan des images Docker avec Trivy..."
-            echo "➡️ Frontend : $DOCKER_USER/$FRONT_IMAGE:latest"
-            trivy image --no-progress --ignorefile .trivyignore \
-              --scanners vuln \
-              --severity HIGH,CRITICAL \
-              --exit-code 0 \
-              $DOCKER_USER/$FRONT_IMAGE:latest || true
-
-            echo "➡️ Backend : $DOCKER_USER/$BACK_IMAGE:latest"
-            trivy image --no-progress --ignorefile .trivyignore \
-              --scanners vuln \
-              --severity HIGH,CRITICAL \
-              --exit-code 0 \
-              $DOCKER_USER/$BACK_IMAGE:latest || true
-
-            echo "✅ Scan Trivy terminé (aucun blocage du pipeline)."
-          '''
-        }
-      }
-    }
-*/
     stage('Push Docker Images') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
