@@ -1,4 +1,4 @@
- pipeline {
+pipeline {
   agent any
 
   tools {
@@ -65,6 +65,54 @@
         }
       }
     }
+
+    /* === 🔍 Nouvelle étape TRIVY === */
+    stage('Trivy Scan') {
+      steps {
+        script {
+          sh '''
+            echo "🔍 Installation de Trivy si nécessaire..."
+            if ! command -v trivy &> /dev/null; then
+              apt-get update && apt-get install -y wget gnupg lsb-release
+              mkdir -p /etc/apt/keyrings
+              wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /etc/apt/keyrings/trivy.gpg
+              echo "deb [signed-by=/etc/apt/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+              apt-get update && apt-get install -y trivy
+            fi
+
+            echo "📦 Démarrage du scan Trivy..."
+
+            mkdir -p trivy-reports
+
+            # Scan Frontend
+            echo "🧪 Scan du frontend..."
+            trivy image --no-progress --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --format table \
+              --output trivy-reports/frontend-report.txt \
+              --exit-code 0 \
+              $DOCKER_USER/$FRONT_IMAGE:latest || true
+
+            # Scan Backend
+            echo "🧪 Scan du backend..."
+            trivy image --no-progress --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --format table \
+              --output trivy-reports/backend-report.txt \
+              --exit-code 0 \
+              $DOCKER_USER/$BACK_IMAGE:latest || true
+
+            echo "✅ Scan Trivy terminé — rapports générés dans trivy-reports/"
+          '''
+        }
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true
+        }
+      }
+    }
+
     stage('Push Docker Images') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
@@ -123,7 +171,7 @@
         body: """
           Pipeline réussi 🎉
           Détails : ${env.BUILD_URL}
-          Scan Trivy : aucun problème critique détecté
+          Rapport Trivy archivé dans les artefacts Jenkins.
         """,
         to: "kebambaye195@gmail.com"
       )
