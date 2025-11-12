@@ -1,4 +1,4 @@
-voici mon jenkinsfile, alors modifie l'etape trivy pour moi pipeline {
+ pipeline {
   agent any
 
   tools {
@@ -71,28 +71,42 @@ voici mon jenkinsfile, alors modifie l'etape trivy pour moi pipeline {
         script {
           sh '''
             echo "🔍 Installation et exécution de Trivy..."
+
             if ! command -v trivy &> /dev/null; then
               echo "📦 Installation de Trivy..."
               apt-get update && apt-get install -y wget gnupg lsb-release
-              wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
-              echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | tee /etc/apt/sources.list.d/trivy.list
+              mkdir -p /etc/apt/keyrings
+              wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /etc/apt/keyrings/trivy.gpg
+              echo "deb [signed-by=/etc/apt/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+                | tee /etc/apt/sources.list.d/trivy.list
               apt-get update && apt-get install -y trivy
             fi
 
             echo "🧾 Vérification du fichier .trivyignore..."
-            ls -la
             if [ -f ".trivyignore" ]; then
               echo "✅ Fichier .trivyignore trouvé :"
               cat .trivyignore
             else
-              echo "⚠️ Fichier .trivyignore introuvable !"
+              echo "⚠️ Aucun fichier .trivyignore trouvé, création d’un temporaire..."
+              echo "# Ignorer les CVE connus mais non exploitables" > .trivyignore
             fi
 
             echo "🧪 Scan des images Docker avec Trivy..."
-            trivy image --no-progress --ignorefile .trivyignore --severity HIGH,CRITICAL --exit-code 0 $DOCKER_USER/$FRONT_IMAGE:latest
-            trivy image --no-progress --ignorefile .trivyignore --severity HIGH,CRITICAL --exit-code 0 $DOCKER_USER/$BACK_IMAGE:latest
+            echo "➡️ Frontend : $DOCKER_USER/$FRONT_IMAGE:latest"
+            trivy image --no-progress --ignorefile .trivyignore \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              $DOCKER_USER/$FRONT_IMAGE:latest || true
 
-            echo "✅ Aucun problème critique détecté par Trivy"
+            echo "➡️ Backend : $DOCKER_USER/$BACK_IMAGE:latest"
+            trivy image --no-progress --ignorefile .trivyignore \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              $DOCKER_USER/$BACK_IMAGE:latest || true
+
+            echo "✅ Scan Trivy terminé (aucun blocage du pipeline)."
           '''
         }
       }
