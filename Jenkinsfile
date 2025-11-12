@@ -66,39 +66,41 @@ pipeline {
       }
     }
 
-    /* === 🔍 Nouvelle étape TRIVY === */
-stage('Trivy Scan') {
-  steps {
-    script {
-      sh '''
-        echo "🔍 Installation de Trivy si nécessaire..."
-        if ! command -v trivy &> /dev/null; then
-          echo "📦 Installation de Trivy..."
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-        fi
+    /* === 🔍 Étape Trivy corrigée === */
+    stage('Trivy Scan') {
+      steps {
+        script {
+          sh '''
+            echo "🔍 Installation de Trivy si nécessaire..."
+            if ! command -v trivy &> /dev/null; then
+              echo "📦 Installation de Trivy..."
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+            fi
 
-        echo "🧾 Vérification du fichier .trivyignore..."
-        if [ ! -f ".trivyignore" ]; then
-          echo "# Ignorer des CVE connus ou non exploitables" > .trivyignore
-        fi
+            mkdir -p trivy-reports
 
-        echo "🧪 Scan des images Docker avec Trivy..."
-        trivy image --no-progress --ignorefile .trivyignore \
-          --severity HIGH,CRITICAL \
-          --exit-code 0 \
-          $DOCKER_USER/$FRONT_IMAGE:latest || true
+            echo "🧾 Vérification du fichier .trivyignore..."
+            if [ ! -f ".trivyignore" ]; then
+              echo "# Ignorer des CVE connus ou non exploitables" > .trivyignore
+            fi
 
-        trivy image --no-progress --ignorefile .trivyignore \
-          --severity HIGH,CRITICAL \
-          --exit-code 0 \
-          $DOCKER_USER/$BACK_IMAGE:latest || true
+            echo "🧪 Scan des images Docker avec Trivy..."
+            trivy image --no-progress --ignorefile .trivyignore \
+              --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              -f table -o trivy-reports/frontend-scan.txt \
+              $DOCKER_USER/$FRONT_IMAGE:latest || true
 
-        echo "✅ Scan Trivy terminé avec succès."
-      '''
-    }
-  }
-}
+            trivy image --no-progress --ignorefile .trivyignore \
+              --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              -f table -o trivy-reports/backend-scan.txt \
+              $DOCKER_USER/$BACK_IMAGE:latest || true
 
+            echo "✅ Scan Trivy terminé avec succès."
+          '''
+        }
+      }
       post {
         always {
           archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true
