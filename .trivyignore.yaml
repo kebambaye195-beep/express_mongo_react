@@ -1,0 +1,9 @@
+ignoreRules:
+  - vulnerabilityID: CVE-2024-24790
+    reason: "False positive from esbuild Go runtime — not exploitable in JS context"
+  - vulnerabilityID: CVE-2023-39325
+    reason: "Affects Go HTTP server, not used by esbuild binary"
+  - vulnerabilityID: CVE-2023-45283
+    reason: "Not relevant to our usage of esbuild"
+  - vulnerabilityID: CVE-2023-45288
+    reason: "False positive from Go stdlib in esbuild"
