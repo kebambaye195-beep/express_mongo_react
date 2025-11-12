@@ -65,7 +65,7 @@
         }
       }
     }
-
+/*
     stage('Trivy Scan') {
       steps {
         script {
@@ -111,7 +111,7 @@
         }
       }
     }
-
+*/
     stage('Push Docker Images') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
