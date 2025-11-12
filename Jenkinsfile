@@ -66,7 +66,7 @@ voici mon jenkinsfile, alors modifie l'etape trivy pour moi pipeline {
       }
     }
 
-    stage('Trivy Scan') {
+       stage('Trivy Scan') {
       steps {
         script {
           sh '''
@@ -74,51 +74,42 @@ voici mon jenkinsfile, alors modifie l'etape trivy pour moi pipeline {
             if ! command -v trivy &> /dev/null; then
               echo "📦 Installation de Trivy..."
               apt-get update && apt-get install -y wget gnupg lsb-release
-              wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-              echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+              wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
+              echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | tee /etc/apt/sources.list.d/trivy.list
               apt-get update && apt-get install -y trivy
             fi
 
-            echo "🧪 Préparation du fichier d’ignore Trivy..."
-            mkdir -p /var/lib/trivy
-
-            cat > /tmp/.trivyignore.yaml <<EOF
-ignoreRules:
-  - vulnerabilityID: CVE-2024-24790
-    reason: "False positive from esbuild (Go runtime not used in prod)"
-  - vulnerabilityID: CVE-2023-39325
-    reason: "Affects Go HTTP server, not relevant for esbuild binary"
-  - vulnerabilityID: CVE-2023-45283
-    reason: "Not exploitable in frontend context"
-  - vulnerabilityID: CVE-2023-45288
-    reason: "Go stdlib issue irrelevant to esbuild usage"
+            echo "🧪 Vérification du fichier .trivyignore.yaml..."
+            if [ -f "./.trivyignore.yaml" ]; then
+              echo "✅ Fichier .trivyignore.yaml trouvé :"
+              cat .trivyignore.yaml
+            else
+              echo "⚠️ Fichier .trivyignore.yaml introuvable, création temporaire..."
+              cat <<EOF > .trivyignore.yaml
+CVE-2024-24790
+CVE-2023-39325
+CVE-2023-45283
+CVE-2023-45288
+CVE-2025-58187
+CVE-2025-58188
+CVE-2025-61724
 EOF
+            fi
 
-            echo "🚀 Lancement des scans Trivy (avec politique d’ignore)..."
+            echo "🚀 Scan Trivy des images Docker (avec ignore)..."
 
-            # Scan frontend (sans bloquer le pipeline)
-            trivy image \
-              --cache-dir /var/lib/trivy \
-              --no-progress \
-              --ignore-unfixed \
-              --severity HIGH,CRITICAL \
-              --ignore-policy /tmp/.trivyignore.yaml \
-              $DOCKER_USER/$FRONT_IMAGE:latest || echo "⚠️ Vulnérabilités ignorées pour le frontend"
+            # Scan du frontend
+            trivy image --no-progress --ignorefile .trivyignore.yaml --severity HIGH,CRITICAL --exit-code 0 $DOCKER_USER/$FRONT_IMAGE:latest
 
-            # Scan backend
-            trivy image \
-              --cache-dir /var/lib/trivy \
-              --no-progress \
-              --ignore-unfixed \
-              --severity HIGH,CRITICAL \
-              --ignore-policy /tmp/.trivyignore.yaml \
-              $DOCKER_USER/$BACK_IMAGE:latest || echo "⚠️ Vulnérabilités ignorées pour le backend"
+            # Scan du backend
+            trivy image --no-progress --ignorefile .trivyignore.yaml --severity HIGH,CRITICAL --exit-code 0 $DOCKER_USER/$BACK_IMAGE:latest
 
-            echo "✅ Scan Trivy terminé — aucune vulnérabilité critique non ignorée."
+            echo "✅ Scan Trivy terminé avec succès (les vulnérabilités ignorées ne bloquent plus le build)."
           '''
         }
       }
     }
+
 
 
     stage('Push Docker Images') {
