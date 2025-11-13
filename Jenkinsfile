@@ -161,6 +161,14 @@ pipeline {
           Pipeline réussi 🎉
           Détails : ${env.BUILD_URL}
           Rapport Trivy archivé dans les artefacts Jenkins.
+              <p>Bonjour,</p>
+    <p>Le pipeline Jenkins est terminé. Voici les rapports Trivy :</p>
+    <ul>
+      <li><a href="${BUILD_URL}artifact/trivy-reports/frontend-scan.html">Frontend Scan</a></li>
+      <li><a href="${BUILD_URL}artifact/trivy-reports/backend-scan.html">Backend Scan</a></li>
+    </ul>
+  """,
+  recipientProviders: [[$class: 'DevelopersRecipientProvider']],
         """,
         to: "kebambaye195@gmail.com"
       )
