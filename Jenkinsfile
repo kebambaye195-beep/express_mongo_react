@@ -89,6 +89,7 @@ pipeline {
               --exit-code 0 \
               -f table -o trivy-reports/backend-scan.txt \
               -f json -o trivy-reports/backend-scan.json \
+              trivy image juge2000/express-backend
               $DOCKER_USER/$BACK_IMAGE:latest || true
 
             echo "✅ Scan Trivy terminé avec succès."
