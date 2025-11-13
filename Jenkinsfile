@@ -80,7 +80,7 @@ pipeline {
 
             echo "🧪 Scan des images Docker avec Trivy..."
             trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
-              --exit-code 0 \
+              --exit-code 1 \
               -f table -o trivy-reports/frontend-scan.txt \
               -f json -o trivy-reports/frontend-scan.json \
               $DOCKER_USER/$FRONT_IMAGE:latest || true
