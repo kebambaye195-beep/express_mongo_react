@@ -7,6 +7,9 @@ pipeline {
 
   environment {
     DOCKER_USER = 'kebambaye195-beep'
+    FRONT_IMAGE_LOCAL = 'front-image-local'
+    BACK_IMAGE_LOCAL  = 'back-image-local'
+
     FRONT_IMAGE = 'express-frontend'
     BACK_IMAGE  = 'express-backend'
   }
@@ -26,6 +29,7 @@ pipeline {
   }
 
   stages {
+
     stage('Checkout') {
       steps {
         git branch: 'main', url: 'https://github.com/kebambaye195-beep/express_mongo_react.git'
@@ -57,11 +61,11 @@ pipeline {
       }
     }
 
-    stage('Build Docker Images') {
+    stage('Build Docker Images (LOCAL ONLY)') {
       steps {
         script {
-          sh "docker build -t $DOCKER_USER/$FRONT_IMAGE:latest ./front-end"
-          sh "docker build -t $DOCKER_USER/$BACK_IMAGE:latest ./back-end"
+          sh "docker build -t ${FRONT_IMAGE_LOCAL}:latest ./front-end"
+          sh "docker build -t ${BACK_IMAGE_LOCAL}:latest ./back-end"
         }
       }
     }
@@ -70,29 +74,27 @@ pipeline {
       steps {
         script {
           sh '''
-            echo "🔍 Installation de Trivy si nécessaire..."
+            echo "🔍 Installing Trivy..."
             if ! command -v trivy &> /dev/null; then
-              echo "📦 Installation de Trivy..."
               curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
             fi
 
             mkdir -p trivy-reports
 
-            echo "🧪 Scan des images Docker avec Trivy..."
-            trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
-              --exit-code 1 \
-              -f table -o trivy-reports/frontend-scan.txt \
-              -f json -o trivy-reports/frontend-scan.json \
-              $DOCKER_USER/$FRONT_IMAGE:latest || true
+            echo "📥 Updating Trivy database..."
+            trivy --download-db-only
 
-            trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
-              --exit-code 0 \
-              -f table -o trivy-reports/backend-scan.txt \
-              -f json -o trivy-reports/backend-scan.json \
-              trivy image juge2000/express-backend
-              $DOCKER_USER/$BACK_IMAGE:latest || true
+            echo "🧪 Scanning Docker images..."
+            trivy image --severity HIGH,CRITICAL --format json -o trivy-reports/frontend-image.json front-image-local:latest || true
+            trivy image --severity HIGH,CRITICAL --format json -o trivy-reports/backend-image.json back-image-local:latest || true
 
-            echo "✅ Scan Trivy terminé avec succès."
+            echo "🧪 Scanning filesystem (npm vulnerabilities)..."
+            trivy fs --severity HIGH,CRITICAL --format json -o trivy-reports/frontend-fs.json ./front-end || true
+            trivy fs --severity HIGH,CRITICAL --format json -o trivy-reports/backend-fs.json ./back-end || true
+
+            echo "📝 Generating HTML reports..."
+            trivy image --severity HIGH,CRITICAL --format template --template "@contrib/html.tpl" -o trivy-reports/frontend-image.html front-image-local:latest || true
+            trivy image --severity HIGH,CRITICAL --format template --template "@contrib/html.tpl" -o trivy-reports/backend-image.html back-image-local:latest || true
           '''
         }
       }
@@ -103,13 +105,17 @@ pipeline {
       }
     }
 
-    stage('Push Docker Images') {
+    stage('Tag & Push DockerHub Images') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
           sh '''
+            docker tag front-image-local:latest $DOCKER_USER/express-frontend:latest
+            docker tag back-image-local:latest $DOCKER_USER/express-backend:latest
+
             echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-            docker push $DOCKER_USER/$FRONT_IMAGE:latest
-            docker push $DOCKER_USER/$BACK_IMAGE:latest
+
+            docker push $DOCKER_USER/express-frontend:latest
+            docker push $DOCKER_USER/express-backend:latest
           '''
         }
       }
@@ -122,32 +128,21 @@ pipeline {
       }
     }
 
-    stage('Check Docker & Compose') {
+    stage('Deploy compose.yaml') {
       steps {
-        sh 'docker --version'
-        sh 'docker-compose --version || echo "docker-compose non trouvé"'
-      }
-    }
-
-    stage('Deploy (compose.yaml)') {
-      steps {
-        dir('.') {
-          sh 'docker-compose -f compose.yaml down || true'
-          sh 'docker-compose -f compose.yaml pull'
-          sh 'docker-compose -f compose.yaml up -d'
-          sh 'docker-compose -f compose.yaml ps'
-          sh 'docker-compose -f compose.yaml logs --tail=50'
-        }
+        sh 'docker-compose -f compose.yaml down || true'
+        sh 'docker-compose -f compose.yaml pull'
+        sh 'docker-compose -f compose.yaml up -d'
       }
     }
 
     stage('Smoke Test') {
       steps {
         sh '''
-          echo "✅ Vérification Frontend (port 5173)..."
+          echo "Frontend test..."
           curl -f http://localhost:5173 || echo "Frontend unreachable"
 
-          echo "✅ Vérification Backend (port 5001)..."
+          echo "Backend test..."
           curl -f http://localhost:5001/api || echo "Backend unreachable"
         '''
       }
@@ -159,17 +154,12 @@ pipeline {
       emailext(
         subject: "✅ Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
         body: """
-          Pipeline réussi 🎉
-          Détails : ${env.BUILD_URL}
-          Rapport Trivy archivé dans les artefacts Jenkins.
-              <p>Bonjour,</p>
-    <p>Le pipeline Jenkins est terminé. Voici les rapports Trivy :</p>
-    <ul>
-      <li><a href="${BUILD_URL}artifact/trivy-reports/frontend-scan.html">Frontend Scan</a></li>
-      <li><a href="${BUILD_URL}artifact/trivy-reports/backend-scan.html">Backend Scan</a></li>
-    </ul>
-  """,
-  recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+          Le pipeline Jenkins est terminé.
+          <p>Rapports Trivy :</p>
+          <ul>
+            <li><a href="${BUILD_URL}artifact/trivy-reports/frontend-image.html">Frontend (image)</a></li>
+            <li><a href="${BUILD_URL}artifact/trivy-reports/backend-image.html">Backend (image)</a></li>
+          </ul>
         """,
         to: "kebambaye195@gmail.com"
       )
@@ -178,11 +168,7 @@ pipeline {
     failure {
       emailext(
         subject: "❌ Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-        body: """
-          Le pipeline a échoué 🚨
-          Détails : ${env.BUILD_URL}
-          Vérifie le rapport Trivy ou les étapes Docker.
-        """,
+        body: "Échec du pipeline : ${env.BUILD_URL}",
         to: "kebambaye195@gmail.com"
       )
     }
