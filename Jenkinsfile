@@ -57,52 +57,50 @@ pipeline {
       }
     }
 
-    stage('Trivy Scan') {
-      steps {
-        script {
-          sh '''
-            echo "🔍 Installation de Trivy si nécessaire..."
-            if ! command -v trivy &> /dev/null; then
-              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
-                sh -s -- -b /usr/local/bin
-            fi
+   stage('Trivy Scan') {
+  steps {
+    script {
+      sh '''
+        echo "🔍 Installation de Trivy si nécessaire..."
+        if ! command -v trivy &> /dev/null; then
+          echo "📦 Installation de Trivy..."
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+        fi
 
-            mkdir -p trivy-reports
+        mkdir -p trivy-reports
 
-            echo "📥 Mise à jour de la base Trivy..."
-            trivy --download-db-only
+        echo "🧪 Scan des images Docker avec Trivy (Alpine + packages)..."
+        # FRONTEND
+        trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+          -f table -o trivy-reports/frontend-image.txt \
+          -f json -o trivy-reports/frontend-image.json \
+          $DOCKER_USER/$FRONT_IMAGE:latest
 
-            echo "🧪 Scan des IMAGES LOCALES..."
-            trivy image --severity HIGH,CRITICAL \
-              --format json -o trivy-reports/frontend-image.json ${FRONT_LOCAL}:latest || true
+        # BACKEND
+        trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+          -f table -o trivy-reports/backend-image.txt \
+          -f json -o trivy-reports/backend-image.json \
+          $DOCKER_USER/$BACK_IMAGE:latest
 
-            trivy image --severity HIGH,CRITICAL \
-              --format json -o trivy-reports/backend-image.json ${BACK_LOCAL}:latest || true
+        echo "🧪 Scan des fichiers locaux pour Node.js (npm)..."
+        # FRONTEND
+        trivy fs --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+          -f table -o trivy-reports/frontend-fs.txt ./front-end
 
-            echo "🧪 Scan filesystem npm (vulnérabilités réelles Node)..."
-            trivy fs --severity HIGH,CRITICAL \
-              --format json -o trivy-reports/frontend-fs.json ./front-end || true
+        # BACKEND
+        trivy fs --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+          -f table -o trivy-reports/backend-fs.txt ./back-end
 
-            trivy fs --severity HIGH,CRITICAL \
-              --format json -o trivy-reports/backend-fs.json ./back-end || true
-
-            echo "📝 Génération des rapports HTML..."
-            trivy image --severity HIGH,CRITICAL \
-              --format template --template "@contrib/html.tpl" \
-              -o trivy-reports/frontend-image.html ${FRONT_LOCAL}:latest || true
-
-            trivy image --severity HIGH,CRITICAL \
-              --format template --template "@contrib/html.tpl" \
-              -o trivy-reports/backend-image.html ${BACK_LOCAL}:latest || true
-          '''
-        }
-      }
-      post {
-        always {
-          archiveArtifacts artifacts: 'trivy-reports/*.*', fingerprint: true
-        }
-      }
+        echo "✅ Scan Trivy terminé avec succès."
+      '''
     }
+  }
+  post {
+    always {
+      archiveArtifacts artifacts: 'trivy-reports/*.*', fingerprint: true
+    }
+  }
+}
 
     stage('Tag & Push DockerHub Images') {
       steps {
