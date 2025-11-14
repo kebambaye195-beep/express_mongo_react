@@ -1,11 +1,16 @@
-FROM node:22.18.0-alpine AS build
+FROM node:22.18.0-alpine
+
 WORKDIR /app
+
+# Copier package.json et installer les dépendances
 COPY package*.json ./
 RUN npm install
-COPY . .
-RUN npm run build
 
-FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Copier le code
+COPY . .
+
+# Exposer Vite
+EXPOSE 5173
+
+# Lancer Vite en mode DEV
+CMD ["npm", "run", "dev", "--", "--host=0.0.0.0"]
