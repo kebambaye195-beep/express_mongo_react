@@ -57,11 +57,11 @@ pipeline {
       }
     }
 
-   stage('Trivy Scan') {
+stage('Trivy Scan') {
   steps {
     script {
       sh '''
-        echo "🔍 Installation de Trivy si nécessaire..."
+        echo "🔍 Vérification et installation de Trivy..."
         if ! command -v trivy &> /dev/null; then
           echo "📦 Installation de Trivy..."
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
@@ -69,29 +69,30 @@ pipeline {
 
         mkdir -p trivy-reports
 
-        echo "🧪 Scan des images Docker avec Trivy (Alpine + packages)..."
-        # FRONTEND
+        echo "🧪 Scan des images Docker..."
+        # Scan image frontend
         trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
-          -f table -o trivy-reports/frontend-image.txt \
-          -f json -o trivy-reports/frontend-image.json \
+          --ignore-unfixed=false \
+          -f table -o trivy-reports/frontend-scan.txt \
+          -f json -o trivy-reports/frontend-scan.json \
           $DOCKER_USER/$FRONT_IMAGE:latest
 
-        # BACKEND
+        # Scan image backend
         trivy image --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
-          -f table -o trivy-reports/backend-image.txt \
-          -f json -o trivy-reports/backend-image.json \
+          --ignore-unfixed=false \
+          -f table -o trivy-reports/backend-scan.txt \
+          -f json -o trivy-reports/backend-scan.json \
           $DOCKER_USER/$BACK_IMAGE:latest
 
-        echo "🧪 Scan des fichiers locaux pour Node.js (npm)..."
-        # FRONTEND
+        echo "🧪 Scan du filesystem (Node + projet local)..."
         trivy fs --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
-          -f table -o trivy-reports/frontend-fs.txt ./front-end
-
-        # BACKEND
+          --ignore-unfixed=false \
+          -f table -o trivy-reports/fs-backend.txt ./back-end
         trivy fs --no-progress --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
-          -f table -o trivy-reports/backend-fs.txt ./back-end
+          --ignore-unfixed=false \
+          -f table -o trivy-reports/fs-frontend.txt ./front-end
 
-        echo "✅ Scan Trivy terminé avec succès."
+        echo "✅ Scan Trivy terminé."
       '''
     }
   }
@@ -101,6 +102,7 @@ pipeline {
     }
   }
 }
+
 
     stage('Tag & Push DockerHub Images') {
       steps {
