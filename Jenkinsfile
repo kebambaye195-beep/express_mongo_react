@@ -7,25 +7,12 @@ pipeline {
 
   environment {
     DOCKER_USER = 'kebambaye195-beep'
-    FRONT_IMAGE_LOCAL = 'front-image-local'
-    BACK_IMAGE_LOCAL  = 'back-image-local'
+
+    FRONT_LOCAL = 'express-frontend-local'
+    BACK_LOCAL  = 'express-backend-local'
 
     FRONT_IMAGE = 'express-frontend'
     BACK_IMAGE  = 'express-backend'
-  }
-
-  triggers {
-    GenericTrigger(
-      genericVariables: [
-        [key: 'ref', value: '$.ref'],
-        [key: 'pusher_name', value: '$.pusher.name'],
-        [key: 'commit_message', value: '$.head_commit.message']
-      ],
-      causeString: 'Push par $pusher_name sur $ref: "$commit_message"',
-      token: 'mysecret',
-      printContributedVariables: true,
-      printPostContent: true
-    )
   }
 
   stages {
@@ -61,11 +48,11 @@ pipeline {
       }
     }
 
-    stage('Build Docker Images (LOCAL ONLY)') {
+    stage('Build Docker Images (LOCAL)') {
       steps {
         script {
-          sh "docker build -t ${FRONT_IMAGE_LOCAL}:latest ./front-end"
-          sh "docker build -t ${BACK_IMAGE_LOCAL}:latest ./back-end"
+          sh "docker build -t ${FRONT_LOCAL}:latest ./front-end"
+          sh "docker build -t ${BACK_LOCAL}:latest ./back-end"
         }
       }
     }
@@ -74,27 +61,39 @@ pipeline {
       steps {
         script {
           sh '''
-            echo "🔍 Installing Trivy..."
+            echo "🔍 Installation de Trivy si nécessaire..."
             if ! command -v trivy &> /dev/null; then
-              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
+                sh -s -- -b /usr/local/bin
             fi
 
             mkdir -p trivy-reports
 
-            echo "📥 Updating Trivy database..."
+            echo "📥 Mise à jour de la base Trivy..."
             trivy --download-db-only
 
-            echo "🧪 Scanning Docker images..."
-            trivy image --severity HIGH,CRITICAL --format json -o trivy-reports/frontend-image.json front-image-local:latest || true
-            trivy image --severity HIGH,CRITICAL --format json -o trivy-reports/backend-image.json back-image-local:latest || true
+            echo "🧪 Scan des IMAGES LOCALES..."
+            trivy image --severity HIGH,CRITICAL \
+              --format json -o trivy-reports/frontend-image.json ${FRONT_LOCAL}:latest || true
 
-            echo "🧪 Scanning filesystem (npm vulnerabilities)..."
-            trivy fs --severity HIGH,CRITICAL --format json -o trivy-reports/frontend-fs.json ./front-end || true
-            trivy fs --severity HIGH,CRITICAL --format json -o trivy-reports/backend-fs.json ./back-end || true
+            trivy image --severity HIGH,CRITICAL \
+              --format json -o trivy-reports/backend-image.json ${BACK_LOCAL}:latest || true
 
-            echo "📝 Generating HTML reports..."
-            trivy image --severity HIGH,CRITICAL --format template --template "@contrib/html.tpl" -o trivy-reports/frontend-image.html front-image-local:latest || true
-            trivy image --severity HIGH,CRITICAL --format template --template "@contrib/html.tpl" -o trivy-reports/backend-image.html back-image-local:latest || true
+            echo "🧪 Scan filesystem npm (vulnérabilités réelles Node)..."
+            trivy fs --severity HIGH,CRITICAL \
+              --format json -o trivy-reports/frontend-fs.json ./front-end || true
+
+            trivy fs --severity HIGH,CRITICAL \
+              --format json -o trivy-reports/backend-fs.json ./back-end || true
+
+            echo "📝 Génération des rapports HTML..."
+            trivy image --severity HIGH,CRITICAL \
+              --format template --template "@contrib/html.tpl" \
+              -o trivy-reports/frontend-image.html ${FRONT_LOCAL}:latest || true
+
+            trivy image --severity HIGH,CRITICAL \
+              --format template --template "@contrib/html.tpl" \
+              -o trivy-reports/backend-image.html ${BACK_LOCAL}:latest || true
           '''
         }
       }
@@ -109,26 +108,19 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
           sh '''
-            docker tag front-image-local:latest $DOCKER_USER/express-frontend:latest
-            docker tag back-image-local:latest $DOCKER_USER/express-backend:latest
+            docker tag ${FRONT_LOCAL}:latest $DOCKER_USER/${FRONT_IMAGE}:latest
+            docker tag ${BACK_LOCAL}:latest $DOCKER_USER/${BACK_IMAGE}:latest
 
             echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
 
-            docker push $DOCKER_USER/express-frontend:latest
-            docker push $DOCKER_USER/express-backend:latest
+            docker push $DOCKER_USER/${FRONT_IMAGE}:latest
+            docker push $DOCKER_USER/${BACK_IMAGE}:latest
           '''
         }
       }
     }
 
-    stage('Clean Docker') {
-      steps {
-        sh 'docker container prune -f'
-        sh 'docker image prune -f'
-      }
-    }
-
-    stage('Deploy compose.yaml') {
+    stage('Deploy Docker Compose (DEV)') {
       steps {
         sh 'docker-compose -f compose.yaml down || true'
         sh 'docker-compose -f compose.yaml pull'
@@ -139,11 +131,11 @@ pipeline {
     stage('Smoke Test') {
       steps {
         sh '''
-          echo "Frontend test..."
-          curl -f http://localhost:5173 || echo "Frontend unreachable"
+          echo "Test Frontend..."
+          curl -f http://localhost:5173 || echo "⚠ Frontend unreachable"
 
-          echo "Backend test..."
-          curl -f http://localhost:5001/api || echo "Backend unreachable"
+          echo "Test Backend..."
+          curl -f http://localhost:5001/api || echo "⚠ Backend unreachable"
         '''
       }
     }
@@ -154,8 +146,8 @@ pipeline {
       emailext(
         subject: "✅ Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
         body: """
-          Le pipeline Jenkins est terminé.
-          <p>Rapports Trivy :</p>
+          Pipeline terminé avec succès.<br>
+          <b>Rapports Trivy :</b>
           <ul>
             <li><a href="${BUILD_URL}artifact/trivy-reports/frontend-image.html">Frontend (image)</a></li>
             <li><a href="${BUILD_URL}artifact/trivy-reports/backend-image.html">Backend (image)</a></li>
@@ -168,7 +160,7 @@ pipeline {
     failure {
       emailext(
         subject: "❌ Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-        body: "Échec du pipeline : ${env.BUILD_URL}",
+        body: "Le pipeline a échoué : ${env.BUILD_URL}",
         to: "kebambaye195@gmail.com"
       )
     }
