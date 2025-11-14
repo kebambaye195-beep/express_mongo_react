@@ -1,24 +1,14 @@
-# Image node alpine
 FROM node:22.18.0-alpine
 
-# Dossier de travail
 WORKDIR /app
 
-# Copie uniquement les fichiers nécessaires pour installer les dépendances
 COPY package*.json ./
-COPY .env ./
+RUN npm install
 
-# Installation (production uniquement)
-RUN npm install --production
-
-# Copie du reste du code
 COPY . .
 
-# Exposition du port Backend
 EXPOSE 5001
 
-# Environnement production
-ENV NODE_ENV=production
+ENV NODE_ENV=development
 
-# Commande de démarrage
 CMD ["npm", "start"]
